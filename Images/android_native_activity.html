@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Android 原生 Activity 后台保活 · 完整方案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0f14;
+    --bg2: #13161e;
+    --bg3: #1a1e28;
+    --border: #252934;
+    --border2: #2e3446;
+    --accent: #4f9eff;
+    --accent2: #7bc4ff;
+    --green: #4ade80;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --purple: #c084fc;
+    --orange: #fb923c;
+    --text: #cdd5e0;
+    --text2: #8895aa;
+    --text3: #555f72;
+    --heading: #e8edf5;
+    --tag-bg: #1e2535;
+    --layer1: #253050;
+    --layer2: #1d3a2a;
+    --layer3: #2d2040;
+    --layer4: #312010;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans SC', sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    min-height: 100vh;
+  }
+
+  /* ── LAYOUT ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 256px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    padding: 32px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+
+  .sidebar-logo {
+    padding: 0 24px 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+
+  .sidebar-logo .logo-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+
+  .sidebar-logo h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--heading);
+    line-height: 1.3;
+  }
+
+  .sidebar-section-title {
+    padding: 8px 24px 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text3);
+  }
+
+  .sidebar-nav a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 24px;
+    text-decoration: none;
+    color: var(--text2);
+    font-size: 13px;
+    transition: all 0.15s;
+    border-left: 2px solid transparent;
+  }
+
+  .sidebar-nav a:hover {
+    color: var(--heading);
+    background: var(--bg3);
+    border-left-color: var(--accent);
+  }
+
+  .sidebar-nav a .nav-icon {
+    font-size: 14px;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .sidebar-nav a.layer { padding-left: 44px; font-size: 12px; }
+  .sidebar-nav a.sub   { padding-left: 60px; font-size: 12px; color: var(--text3); }
+
+  .sidebar-badge {
+    margin-left: auto;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+  }
+
+  .badge-green  { background: #1a3a25; color: var(--green); }
+  .badge-blue   { background: #1a2a40; color: var(--accent); }
+  .badge-yellow { background: #2e2010; color: var(--yellow); }
+
+  /* ── MAIN ── */
+  .main {
+    padding: 56px 64px;
+    max-width: 960px;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    margin-bottom: 56px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hero-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #1a2a40;
+    border: 1px solid #2a4060;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent2);
+    margin-bottom: 20px;
+    letter-spacing: 0.05em;
+  }
+
+  .hero h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--heading);
+    line-height: 1.2;
+    margin-bottom: 16px;
+  }
+
+  .hero h1 span { color: var(--accent); }
+
+  .hero-desc {
+    color: var(--text2);
+    font-size: 15px;
+    max-width: 600px;
+    line-height: 1.8;
+  }
+
+  .hero-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+
+  .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text3);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .meta-item .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* ── SECTIONS ── */
+  section {
+    margin-bottom: 56px;
+    scroll-margin-top: 32px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    background: #1a2a40;
+    border: 1px solid #2a4060;
+    border-radius: 4px;
+    padding: 3px 8px;
+    flex-shrink: 0;
+  }
+
+  h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--heading);
+  }
+
+  h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--heading);
+    margin: 28px 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  h3::before {
+    content: '';
+    display: block;
+    width: 3px;
+    height: 16px;
+    background: var(--accent);
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  p { color: var(--text); margin-bottom: 14px; }
+
+  /* ── CALLOUT ── */
+  .callout {
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 20px 0;
+    border: 1px solid;
+    display: flex;
+    gap: 14px;
+  }
+
+  .callout-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+
+  .callout-body { flex: 1; }
+
+  .callout-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+
+  .callout-text { font-size: 13.5px; color: var(--text2); line-height: 1.7; }
+
+  .callout.info    { background: #111c2e; border-color: #1e3a60; }
+  .callout.info    .callout-title { color: var(--accent2); }
+  .callout.warn    { background: #1e1800; border-color: #3d3000; }
+  .callout.warn    .callout-title { color: var(--yellow); }
+  .callout.success { background: #0d2218; border-color: #1a4030; }
+  .callout.success .callout-title { color: var(--green); }
+  .callout.danger  { background: #200e0e; border-color: #401818; }
+  .callout.danger  .callout-title { color: var(--red); }
+
+  /* ── FLOW DIAGRAM ── */
+  .flow {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px;
+    margin: 20px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+  }
+
+  .flow-title {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 18px;
+    font-weight: 600;
+  }
+
+  .flow-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    margin: 2px 0;
+  }
+
+  .flow-indent { display: inline-block; width: 20px; flex-shrink: 0; }
+
+  .flow-arrow { color: var(--text3); flex-shrink: 0; margin-right: 4px; }
+
+  .flow-node {
+    padding: 4px 12px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-block;
+  }
+
+  .fn-blue   { background: #1a2a40; color: var(--accent2); border: 1px solid #2a4060; }
+  .fn-green  { background: #1a3a25; color: var(--green);   border: 1px solid #2a5030; }
+  .fn-red    { background: #2a1414; color: var(--red);     border: 1px solid #501818; }
+  .fn-yellow { background: #2a1e00; color: var(--yellow);  border: 1px solid #503000; }
+  .fn-gray   { background: var(--bg3); color: var(--text2); border: 1px solid var(--border2); }
+  .fn-purple { background: #221430; color: var(--purple);  border: 1px solid #3a2050; }
+
+  .flow-label {
+    color: var(--text3);
+    font-size: 11px;
+    margin-left: 10px;
+    margin-top: 5px;
+  }
+
+  .flow-sep {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 14px 0;
+  }
+
+  /* ── LAYER CARDS ── */
+  .layer-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 20px 0;
+  }
+
+  .layer-card {
+    border-radius: 10px;
+    padding: 20px;
+    border: 1px solid;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .layer-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 3px;
+  }
+
+  .lc1 { background: #111c2e; border-color: #1e3a60; }
+  .lc1::before { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .lc2 { background: #0d2218; border-color: #1a4030; }
+  .lc2::before { background: linear-gradient(90deg, #22c55e, #4ade80); }
+  .lc3 { background: #1e1800; border-color: #3d3000; }
+  .lc3::before { background: linear-gradient(90deg, #d97706, var(--yellow)); }
+  .lc4 { background: #1a1020; border-color: #301840; }
+  .lc4::before { background: linear-gradient(90deg, #9333ea, var(--purple)); }
+
+  .lc-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .lc1 .lc-num { color: var(--accent); }
+  .lc2 .lc-num { color: var(--green); }
+  .lc3 .lc-num { color: var(--yellow); }
+  .lc4 .lc-num { color: var(--purple); }
+
+  .lc-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--heading);
+    margin-bottom: 8px;
+  }
+
+  .lc-desc {
+    font-size: 12.5px;
+    color: var(--text2);
+    line-height: 1.6;
+  }
+
+  /* ── CODE BLOCK ── */
+  .code-wrap {
+    margin: 16px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .code-header {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .code-filename {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .code-lang {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .lang-java    { background: #2a1a00; color: #fb923c; border: 1px solid #4a2a00; }
+  .lang-kotlin  { background: #1a0a2a; color: #c084fc; border: 1px solid #3a1a5a; }
+  .lang-xml     { background: #0a2a1a; color: #4ade80; border: 1px solid #1a5a2a; }
+  .lang-js      { background: #2a2a00; color: #fbbf24; border: 1px solid #4a4a00; }
+  .lang-vue     { background: #0a2a0a; color: #86efac; border: 1px solid #1a4a1a; }
+
+  .copy-btn {
+    background: none;
+    border: 1px solid var(--border2);
+    border-radius: 5px;
+    padding: 4px 10px;
+    color: var(--text3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .copy-btn:hover { color: var(--heading); border-color: var(--accent); }
+
+  pre {
+    background: var(--bg2);
+    padding: 20px;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+
+  code { font-family: 'JetBrains Mono', monospace; }
+
+  /* Syntax colors */
+  .kw  { color: #7bc4ff; }   /* keyword */
+  .ty  { color: #c084fc; }   /* type */
+  .fn  { color: #60d9b8; }   /* function */
+  .str { color: #86efac; }   /* string */
+  .cm  { color: #4a5568; font-style: italic; }  /* comment */
+  .an  { color: #fbbf24; }   /* annotation */
+  .nu  { color: #fb923c; }   /* number */
+  .at  { color: #93c5fd; }   /* attribute/param */
+  .op  { color: #7bc4ff; }   /* operator */
+
+  /* ── TABLE ── */
+  .table-wrap {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin: 20px 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead {
+    background: var(--bg3);
+  }
+
+  th {
+    padding: 12px 16px;
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text3);
+    border-bottom: 1px solid var(--border2);
+  }
+
+  td {
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: middle;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg3); }
+
+  .td-check { color: var(--green); font-size: 16px; }
+  .td-cross { color: var(--red); font-size: 16px; }
+  .td-warn  { color: var(--yellow); font-size: 16px; }
+  .td-mono  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent2); }
+
+  /* ── STEP LIST ── */
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 20px 0;
+    position: relative;
+  }
+
+  .steps::before {
+    content: '';
+    position: absolute;
+    left: 17px;
+    top: 34px;
+    bottom: 34px;
+    width: 1px;
+    background: linear-gradient(180deg, var(--accent) 0%, var(--border) 100%);
+  }
+
+  .step {
+    display: flex;
+    gap: 20px;
+    position: relative;
+    padding-bottom: 28px;
+  }
+
+  .step:last-child { padding-bottom: 0; }
+
+  .step-num {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--bg3);
+    border: 2px solid var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    flex-shrink: 0;
+    z-index: 1;
+  }
+
+  .step-body { flex: 1; padding-top: 6px; }
+
+  .step-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--heading);
+    margin-bottom: 8px;
+  }
+
+  .step-desc { font-size: 13.5px; color: var(--text2); }
+
+  /* ── INLINE CODE ── */
+  p code, li code, td code {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 12px;
+    color: var(--accent2);
+  }
+
+  /* ── NOTE BOX ── */
+  .note {
+    border-left: 3px solid var(--border2);
+    padding: 10px 16px;
+    background: var(--bg2);
+    border-radius: 0 6px 6px 0;
+    margin: 14px 0;
+    font-size: 13px;
+    color: var(--text2);
+  }
+
+  .note strong { color: var(--heading); }
+
+  /* ── TOC FLOATING ── */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: relative; height: auto; }
+    .main { padding: 32px 24px; }
+    .layer-cards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ── SIDEBAR ── -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-label">技术方案文档</div>
+      <h1>Android 原生 Activity<br>后台保活完整方案</h1>
+    </div>
+
+    <div class="sidebar-section-title">问题分析</div>
+    <div class="sidebar-nav">
+      <a href="#root-cause"><span class="nav-icon">🔍</span>根本原因</a>
+      <a href="#task-structure" class="layer"><span class="nav-icon">📦</span>Task 结构说明</a>
+      <a href="#new-problem" class="layer"><span class="nav-icon">⚠️</span>独立Task新问题</a>
+    </div>
+
+    <div class="sidebar-section-title">三层防护方案</div>
+    <div class="sidebar-nav">
+      <a href="#layer1"><span class="nav-icon">🛡</span>第一层：独立 Task <span class="sidebar-badge badge-blue">回退栈</span></a>
+      <a href="#layer2"><span class="nav-icon">🔋</span>第二层：前台服务 <span class="sidebar-badge badge-green">进程保活</span></a>
+      <a href="#layer3"><span class="nav-icon">⚙️</span>第三层：电池豁免 <span class="sidebar-badge badge-yellow">OEM</span></a>
+    </div>
+
+    <div class="sidebar-section-title">Task 恢复方案</div>
+    <div class="sidebar-nav">
+      <a href="#restore-step1"><span class="nav-icon">1️⃣</span>持久化 taskId</a>
+      <a href="#restore-step2"><span class="nav-icon">2️⃣</span>插件检测方法</a>
+      <a href="#restore-step3"><span class="nav-icon">3️⃣</span>UniApp 端恢复</a>
+    </div>
+
+    <div class="sidebar-section-title">配置汇总</div>
+    <div class="sidebar-nav">
+      <a href="#manifest"><span class="nav-icon">📄</span>AndroidManifest.xml</a>
+      <a href="#compare"><span class="nav-icon">📊</span>方案效果对比</a>
+      <a href="#notes"><span class="nav-icon">📌</span>注意事项</a>
+    </div>
+  </nav>
+
+  <!-- ── MAIN ── -->
+  <main class="main">
+
+    <!-- HERO -->
+    <div class="hero">
+      <div class="hero-tag">
+        <span>●</span> UniApp + Android 原生插件
+      </div>
+      <h1>原生 Activity<br><span>后台被杀</span> 完整解决方案</h1>
+      <p class="hero-desc">
+        针对 UniApp 原生插件场景下，退后台再恢复时原生 Activity 被系统销毁的问题，从 Activity 回退栈、进程保活、OEM 电池策略三个层面提供完整防护。
+      </p>
+      <div class="hero-meta">
+        <div class="meta-item"><div class="dot"></div>minSdkVersion 21</div>
+        <div class="meta-item"><div class="dot"></div>targetSdkVersion 33</div>
+        <div class="meta-item"><div class="dot"></div>compileSdkVersion 35</div>
+        <div class="meta-item"><div class="dot"></div>Java · Objective-C</div>
+      </div>
+    </div>
+
+
+    <!-- ── 根本原因 ── -->
+    <section id="root-cause">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <h2>问题根本原因</h2>
+      </div>
+
+      <p>后台被杀问题实际上由<strong>两个独立的根因</strong>叠加造成，必须分层解决：</p>
+
+      <div class="layer-cards">
+        <div class="layer-card lc1">
+          <div class="lc-num">根因 A · Activity 层</div>
+          <div class="lc-title">singleTask 清栈</div>
+          <div class="lc-desc">DCloud 宿主 Activity 被声明为 <code>singleTask</code>，从桌面图标恢复时 Android 会销毁其上所有 Activity。</div>
+        </div>
+        <div class="layer-card lc2">
+          <div class="lc-num">根因 B · 进程层</div>
+          <div class="lc-title">OEM 激进进程管控</div>
+          <div class="lc-desc">VIVO / OPPO / 小米等 OEM 对后台进程执行激进的系统级调度，与内存大小无关。</div>
+        </div>
+      </div>
+
+      <div id="task-structure">
+        <h3>独立 Task 方案建立后的问题结构</h3>
+        <p>使用 <code>singleInstance</code> + 独立 <code>taskAffinity</code> 解决了清栈问题后，会引入新问题：</p>
+      </div>
+
+      <div class="flow">
+        <div class="flow-title">// Task 结构示意</div>
+        <div class="flow-row">
+          <span class="flow-node fn-blue">Task A（主 Task，与桌面图标绑定）</span>
+        </div>
+        <div class="flow-row">
+          <span class="flow-indent"></span>
+          <span class="flow-arrow">└──</span>
+          <span class="flow-node fn-gray">UniApp PandoraEntryActivity</span>
+          <span class="flow-label">← Launcher Icon 关联的是这个 Task</span>
+        </div>
+        <hr class="flow-sep">
+        <div class="flow-row">
+          <span class="flow-node fn-purple">Task B（native_task，独立隔离）</span>
+        </div>
+        <div class="flow-row">
+          <span class="flow-indent"></span>
+          <span class="flow-arrow">└──</span>
+          <span class="flow-node fn-green">你的 NativeActivity</span>
+          <span class="flow-label">← 存活，但桌面图标不知道它</span>
+        </div>
+      </div>
+
+      <div id="new-problem">
+        <div class="callout warn">
+          <div class="callout-icon">⚠️</div>
+          <div class="callout-body">
+            <div class="callout-title">新问题：点击桌面图标不恢复原生页面</div>
+            <div class="callout-text">Launcher 查找与包名关联的最近前台 Task，始终指向 Task A。Task B 的 NativeActivity 虽然存活，但被晾在后台。<br><br>解决思路：NativeActivity 启动时记录自身 <code>taskId</code>，UniApp 页面 <code>onShow</code> 时调用插件检测并通过 <code>moveTaskToFront</code> 主动拉回前台。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ── 三层防护总览 ── -->
+    <section>
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <h2>三层防护 + 兜底策略</h2>
+      </div>
+
+      <div class="layer-cards">
+        <div class="layer-card lc1">
+          <div class="lc-num">第一层 · 回退栈</div>
+          <div class="lc-title">🛡 独立 Task 隔离</div>
+          <div class="lc-desc">singleInstance + 独立 taskAffinity，与 UniApp 宿主完全隔离，解决清栈问题。</div>
+        </div>
+        <div class="layer-card lc2">
+          <div class="lc-num">第二层 · 进程</div>
+          <div class="lc-title">🔋 前台服务保活</div>
+          <div class="lc-desc">进入原生页面时启动前台服务，将进程优先级提升至 FOREGROUND_SERVICE，OEM 基本不杀。</div>
+        </div>
+        <div class="layer-card lc3">
+          <div class="lc-num">第三层 · 系统授权</div>
+          <div class="lc-title">⚙️ 电池优化豁免</div>
+          <div class="lc-desc">引导用户关闭电池优化限制，绕过 VIVO 等 OEM 的激进后台管控策略。</div>
+        </div>
+        <div class="layer-card lc4">
+          <div class="lc-num">兜底层 · UniApp 端</div>
+          <div class="lc-title">🔄 状态感知恢复</div>
+          <div class="lc-desc">onShow 时调用插件检测 Task 状态，存活则拉回前台，被杀则引导用户重新进入。</div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ── 第一层 ── -->
+    <section id="layer1">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <h2>第一层：独立 Task 隔离</h2>
+      </div>
+
+      <p>为所有原生 Activity 添加独立的 <code>taskAffinity</code> 和 <code>launchMode</code>，使其运行在独立 Task 中，与 UniApp 宿主 Activity 完全隔离。</p>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">📄 AndroidManifest.xml（Activity 声明部分）</div>
+          <span class="code-lang lang-xml">XML</span>
+        </div>
+        <pre><code><span class="cm">&lt;!-- 预检拍照页面 --&gt;</span>
+<span class="kw">&lt;activity</span>
+    <span class="at">android:name</span>=<span class="str">".PreCheckPhotoActivity"</span>
+    <span class="at">android:launchMode</span>=<span class="str">"singleInstance"</span>
+    <span class="at">android:taskAffinity</span>=<span class="str">"com.yourpackage.native_task"</span>
+    <span class="at">android:exported</span>=<span class="str">"false"</span>
+    <span class="at">android:screenOrientation</span>=<span class="str">"portrait"</span> <span class="kw">/&gt;</span>
+
+<span class="cm">&lt;!-- 质检列表页面 --&gt;</span>
+<span class="kw">&lt;activity</span>
+    <span class="at">android:name</span>=<span class="str">".QualityCheckListActivity"</span>
+    <span class="at">android:launchMode</span>=<span class="str">"singleInstance"</span>
+    <span class="at">android:taskAffinity</span>=<span class="str">"com.yourpackage.native_task"</span>
+    <span class="at">android:exported</span>=<span class="str">"false"</span>
+    <span class="at">android:screenOrientation</span>=<span class="str">"portrait"</span> <span class="kw">/&gt;</span></code></pre>
+      </div>
+
+      <div class="note">
+        <strong>taskAffinity</strong> 必须与应用主包名不同，建议加 <code>.native_task</code> 后缀。<code>singleInstance</code> 保证该 Activity 独占一个 Task，不受主 Task 清栈行为影响。
+      </div>
+    </section>
+
+
+    <!-- ── 第二层 ── -->
+    <section id="layer2">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <h2>第二层：前台服务保活</h2>
+      </div>
+
+      <p>进入原生页面时启动前台服务，将进程优先级从 <code>IMPORTANCE_CACHED</code>（随时可杀）提升至 <code>IMPORTANCE_FOREGROUND_SERVICE</code>（OEM 基本不杀）。</p>
+
+      <h3>NativePageForegroundService.java</h3>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">☕ NativePageForegroundService.java</div>
+          <span class="code-lang lang-java">JAVA</span>
+        </div>
+        <pre><code><span class="kw">public class</span> <span class="ty">NativePageForegroundService</span> <span class="kw">extends</span> <span class="ty">Service</span> {
+
+    <span class="kw">private static final int</span> <span class="at">NOTIFICATION_ID</span> = <span class="nu">9527</span>;
+    <span class="kw">private static final</span> <span class="ty">String</span> <span class="at">CHANNEL_ID</span> = <span class="str">"native_page_channel"</span>;
+
+    <span class="an">@Override</span>
+    <span class="kw">public int</span> <span class="fn">onStartCommand</span>(<span class="ty">Intent</span> intent, <span class="kw">int</span> flags, <span class="kw">int</span> startId) {
+        <span class="fn">createNotificationChannel</span>();
+        <span class="ty">Notification</span> notification = <span class="fn">buildNotification</span>();
+        <span class="fn">startForeground</span>(<span class="at">NOTIFICATION_ID</span>, notification);
+        <span class="cm">// START_STICKY：进程被杀后系统尝试重启服务</span>
+        <span class="kw">return</span> <span class="at">START_STICKY</span>;
+    }
+
+    <span class="kw">private void</span> <span class="fn">createNotificationChannel</span>() {
+        <span class="kw">if</span> (<span class="ty">Build</span>.VERSION.SDK_INT >= <span class="ty">Build</span>.VERSION_CODES.O) {
+            <span class="ty">NotificationChannel</span> channel = <span class="kw">new</span> <span class="ty">NotificationChannel</span>(
+                <span class="at">CHANNEL_ID</span>,
+                <span class="str">"服务进行中"</span>,
+                <span class="ty">NotificationManager</span>.<span class="at">IMPORTANCE_LOW</span> <span class="cm">// 无声音，不打扰用户</span>
+            );
+            channel.<span class="fn">setDescription</span>(<span class="str">"正在进行车辆检查服务"</span>);
+            channel.<span class="fn">setShowBadge</span>(<span class="kw">false</span>);
+            <span class="ty">NotificationManager</span> manager = <span class="fn">getSystemService</span>(<span class="ty">NotificationManager</span>.<span class="kw">class</span>);
+            <span class="kw">if</span> (manager != <span class="kw">null</span>) manager.<span class="fn">createNotificationChannel</span>(channel);
+        }
+    }
+
+    <span class="kw">private</span> <span class="ty">Notification</span> <span class="fn">buildNotification</span>() {
+        <span class="ty">Intent</span> returnIntent = <span class="fn">getPackageManager</span>()
+            .<span class="fn">getLaunchIntentForPackage</span>(<span class="fn">getPackageName</span>());
+        <span class="ty">PendingIntent</span> pendingIntent = <span class="ty">PendingIntent</span>.<span class="fn">getActivity</span>(
+            <span class="kw">this</span>, <span class="nu">0</span>, returnIntent,
+            <span class="ty">PendingIntent</span>.<span class="at">FLAG_UPDATE_CURRENT</span> | <span class="ty">PendingIntent</span>.<span class="at">FLAG_IMMUTABLE</span>
+        );
+
+        <span class="kw">return new</span> <span class="ty">NotificationCompat.Builder</span>(<span class="kw">this</span>, <span class="at">CHANNEL_ID</span>)
+            .<span class="fn">setContentTitle</span>(<span class="str">"服务进行中"</span>)
+            .<span class="fn">setContentText</span>(<span class="str">"正在进行车辆检查，请勿关闭应用"</span>)
+            .<span class="fn">setSmallIcon</span>(R.mipmap.ic_launcher)
+            .<span class="fn">setContentIntent</span>(pendingIntent)
+            .<span class="fn">setOngoing</span>(<span class="kw">true</span>)   <span class="cm">// 不可被用户手动清除</span>
+            .<span class="fn">setSilent</span>(<span class="kw">true</span>)    <span class="cm">// 静默通知</span>
+            .<span class="fn">setPriority</span>(<span class="ty">NotificationCompat</span>.<span class="at">PRIORITY_LOW</span>)
+            .<span class="fn">build</span>();
+    }
+
+    <span class="an">@Nullable</span>
+    <span class="an">@Override</span>
+    <span class="kw">public</span> <span class="ty">IBinder</span> <span class="fn">onBind</span>(<span class="ty">Intent</span> intent) { <span class="kw">return null</span>; }
+
+    <span class="an">@Override</span>
+    <span class="kw">public void</span> <span class="fn">onDestroy</span>() {
+        <span class="kw">super</span>.<span class="fn">onDestroy</span>();
+        <span class="fn">stopForeground</span>(<span class="kw">true</span>);
+    }
+}</code></pre>
+      </div>
+
+      <h3>在 NativeActivity 中控制服务生命周期</h3>
+
+      <div class="callout warn">
+        <div class="callout-icon">⚠️</div>
+        <div class="callout-body">
+          <div class="callout-title">关键启停时机</div>
+          <div class="callout-text">务必在 <code>onResume</code> 启动，仅在用户<strong>主动退出</strong>时停止。切勿在 <code>onPause</code> 或 <code>onStop</code> 中停止，否则退后台时服务会关闭，失去保活效果。</div>
+        </div>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">☕ PreCheckPhotoActivity.java（服务控制部分）</div>
+          <span class="code-lang lang-java">JAVA</span>
+        </div>
+        <pre><code><span class="kw">public class</span> <span class="ty">PreCheckPhotoActivity</span> <span class="kw">extends</span> <span class="ty">AppCompatActivity</span> {
+
+    <span class="kw">private boolean</span> isUserInitiatedExit = <span class="kw">false</span>;
+
+    <span class="an">@Override</span>
+    <span class="kw">protected void</span> <span class="fn">onResume</span>() {
+        <span class="kw">super</span>.<span class="fn">onResume</span>();
+        <span class="fn">startNativeForegroundService</span>(); <span class="cm">// ✅ 进入前台时启动</span>
+    }
+
+    <span class="an">@Override</span>
+    <span class="kw">protected void</span> <span class="fn">onStop</span>() {
+        <span class="kw">super</span>.<span class="fn">onStop</span>();
+        <span class="cm">// ❌ 不在此处停止服务！退后台时要继续保活</span>
+    }
+
+    <span class="an">@Override</span>
+    <span class="kw">protected void</span> <span class="fn">onDestroy</span>() {
+        <span class="kw">super</span>.<span class="fn">onDestroy</span>();
+        <span class="kw">if</span> (<span class="fn">isFinishing</span>() &amp;&amp; isUserInitiatedExit) {
+            <span class="fn">stopNativeForegroundService</span>(); <span class="cm">// ✅ 仅用户主动退出时停止</span>
+        }
+    }
+
+    <span class="cm">/** 用户点击"完成"或"返回"时调用 */</span>
+    <span class="kw">private void</span> <span class="fn">finishPage</span>() {
+        isUserInitiatedExit = <span class="kw">true</span>;
+        <span class="fn">clearNativeTaskState</span>();
+        <span class="fn">stopNativeForegroundService</span>();
+        <span class="fn">finish</span>();
+    }
+
+    <span class="kw">private void</span> <span class="fn">startNativeForegroundService</span>() {
+        <span class="ty">Intent</span> intent = <span class="kw">new</span> <span class="ty">Intent</span>(<span class="kw">this</span>, <span class="ty">NativePageForegroundService</span>.<span class="kw">class</span>);
+        <span class="kw">if</span> (<span class="ty">Build</span>.VERSION.SDK_INT >= <span class="ty">Build</span>.VERSION_CODES.O) {
+            <span class="fn">startForegroundService</span>(intent);
+        } <span class="kw">else</span> {
+            <span class="fn">startService</span>(intent);
+        }
+    }
+
+    <span class="kw">private void</span> <span class="fn">stopNativeForegroundService</span>() {
+        <span class="fn">stopService</span>(<span class="kw">new</span> <span class="ty">Intent</span>(<span class="kw">this</span>, <span class="ty">NativePageForegroundService</span>.<span class="kw">class</span>));
+    }
+}</code></pre>
+      </div>
+    </section>
+
+
+    <!-- ── 第三层 ── -->
+    <section id="layer3">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <h2>第三层：引导关闭电池优化</h2>
+      </div>
+
+      <p>对 VIVO 等管控特别激进的 OEM，引导用户将应用加入电池优化白名单，弹窗只出现一次不重复打扰。</p>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">☕ BatteryOptimizationHelper.java</div>
+          <span class="code-lang lang-java">JAVA</span>
+        </div>
+        <pre><code><span class="kw">public class</span> <span class="ty">BatteryOptimizationHelper</span> {
+
+    <span class="kw">private static final</span> <span class="ty">String</span> <span class="at">PREF_KEY</span> = <span class="str">"battery_opt_requested"</span>;
+
+    <span class="cm">/** 检查并引导用户关闭电池优化（只弹一次） */</span>
+    <span class="kw">public static void</span> <span class="fn">requestIfNeeded</span>(<span class="ty">Activity</span> activity) {
+        <span class="kw">if</span> (<span class="ty">Build</span>.VERSION.SDK_INT < <span class="ty">Build</span>.VERSION_CODES.M) <span class="kw">return</span>;
+
+        <span class="ty">String</span> pkg = activity.<span class="fn">getPackageName</span>();
+        <span class="ty">PowerManager</span> pm = (<span class="ty">PowerManager</span>) activity
+            .<span class="fn">getSystemService</span>(<span class="ty">Context</span>.<span class="at">POWER_SERVICE</span>);
+
+        <span class="kw">if</span> (pm != <span class="kw">null</span> &amp;&amp; pm.<span class="fn">isIgnoringBatteryOptimizations</span>(pkg)) <span class="kw">return</span>;
+
+        <span class="kw">boolean</span> asked = activity
+            .<span class="fn">getSharedPreferences</span>(<span class="str">"app_prefs"</span>, <span class="ty">Context</span>.<span class="at">MODE_PRIVATE</span>)
+            .<span class="fn">getBoolean</span>(<span class="at">PREF_KEY</span>, <span class="kw">false</span>);
+        <span class="kw">if</span> (asked) <span class="kw">return</span>;
+
+        <span class="kw">new</span> <span class="ty">AlertDialog.Builder</span>(activity)
+            .<span class="fn">setTitle</span>(<span class="str">"优化应用体验"</span>)
+            .<span class="fn">setMessage</span>(<span class="str">"为确保检查过程不被系统中断，建议关闭本应用的电池优化限制。\n\n请在接下来的系统设置中选择「不优化」。"</span>)
+            .<span class="fn">setPositiveButton</span>(<span class="str">"去设置"</span>, (d, w) -> {
+                <span class="fn">markAsRequested</span>(activity);
+                <span class="fn">openSettings</span>(activity, pkg);
+            })
+            .<span class="fn">setNegativeButton</span>(<span class="str">"暂不设置"</span>, (d, w) -> <span class="fn">markAsRequested</span>(activity))
+            .<span class="fn">setCancelable</span>(<span class="kw">false</span>)
+            .<span class="fn">show</span>();
+    }
+
+    <span class="kw">private static void</span> <span class="fn">openSettings</span>(<span class="ty">Activity</span> activity, <span class="ty">String</span> pkg) {
+        <span class="kw">try</span> {
+            <span class="ty">Intent</span> i = <span class="kw">new</span> <span class="ty">Intent</span>(
+                <span class="ty">Settings</span>.<span class="at">ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS</span>,
+                <span class="ty">Uri</span>.<span class="fn">parse</span>(<span class="str">"package:"</span> + pkg)
+            );
+            activity.<span class="fn">startActivity</span>(i);
+        } <span class="kw">catch</span> (<span class="ty">Exception</span> e) {
+            <span class="kw">try</span> { <span class="cm">// OEM 不支持直接跳转时，退而求其次</span>
+                activity.<span class="fn">startActivity</span>(<span class="kw">new</span> <span class="ty">Intent</span>(
+                    <span class="ty">Settings</span>.<span class="at">ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS</span>));
+            } <span class="kw">catch</span> (<span class="ty">Exception</span> ignored) {}
+        }
+    }
+
+    <span class="kw">private static void</span> <span class="fn">markAsRequested</span>(<span class="ty">Activity</span> activity) {
+        activity.<span class="fn">getSharedPreferences</span>(<span class="str">"app_prefs"</span>, <span class="ty">Context</span>.<span class="at">MODE_PRIVATE</span>)
+            .<span class="fn">edit</span>().<span class="fn">putBoolean</span>(<span class="at">PREF_KEY</span>, <span class="kw">true</span>).<span class="fn">apply</span>();
+    }
+}</code></pre>
+      </div>
+    </section>
+
+
+    <!-- ── Task 恢复方案 ── -->
+    <section>
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <h2>Task 恢复：主动拉回前台</h2>
+      </div>
+
+      <p>解决独立 Task 引入的新问题：点击桌面图标后只恢复主 Task（UniApp 页面），原生页面虽存活但不可见。</p>
+
+      <div class="steps">
+        <div class="step" id="restore-step1">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">NativeActivity 启动时持久化 taskId</div>
+            <div class="step-desc">将当前 Task ID 写入 SharedPreferences，供后续检测使用。</div>
+          </div>
+        </div>
+        <div class="step" id="restore-step2">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">插件中增加检测方法</div>
+            <div class="step-desc">读取 taskId，通过 <code>getAppTasks()</code> 确认存活状态，存活则调用 <code>moveTaskToFront</code>。</div>
+          </div>
+        </div>
+        <div class="step" id="restore-step3">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">UniApp onShow 中调用检测</div>
+            <div class="step-desc">页面恢复时第一时间调用插件，根据返回结果决定拉回前台或触发兜底恢复。</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>Step 1：NativeActivity 持久化 taskId</h3>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">☕ PreCheckPhotoActivity.java（taskId 持久化部分）</div>
+          <span class="code-lang lang-java">JAVA</span>
+        </div>
+        <pre><code><span class="an">@Override</span>
+<span class="kw">protected void</span> <span class="fn">onCreate</span>(<span class="ty">Bundle</span> savedInstanceState) {
+    <span class="kw">super</span>.<span class="fn">onCreate</span>(savedInstanceState);
+    <span class="fn">setContentView</span>(R.layout.activity_pre_check_photo);
+    <span class="fn">saveNativeTaskState</span>();
+}
+
+<span class="an">@Override</span>
+<span class="kw">protected void</span> <span class="fn">onNewIntent</span>(<span class="ty">Intent</span> intent) {
+    <span class="kw">super</span>.<span class="fn">onNewIntent</span>(intent);
+    <span class="fn">setIntent</span>(intent);
+    <span class="fn">saveNativeTaskState</span>();
+}
+
+<span class="kw">private void</span> <span class="fn">saveNativeTaskState</span>() {
+    <span class="fn">getSharedPreferences</span>(<span class="str">"native_page_prefs"</span>, <span class="at">MODE_PRIVATE</span>)
+        .<span class="fn">edit</span>()
+        .<span class="fn">putInt</span>(<span class="str">"native_task_id"</span>, <span class="fn">getTaskId</span>())
+        .<span class="fn">putString</span>(<span class="str">"active_module"</span>, <span class="fn">getIntent</span>().<span class="fn">getStringExtra</span>(<span class="str">"module"</span>))
+        .<span class="fn">putBoolean</span>(<span class="str">"is_active"</span>, <span class="kw">true</span>)
+        .<span class="fn">apply</span>();
+}
+
+<span class="kw">private void</span> <span class="fn">clearNativeTaskState</span>() {
+    <span class="fn">getSharedPreferences</span>(<span class="str">"native_page_prefs"</span>, <span class="at">MODE_PRIVATE</span>)
+        .<span class="fn">edit</span>()
+        .<span class="fn">remove</span>(<span class="str">"native_task_id"</span>)
+        .<span class="fn">remove</span>(<span class="str">"active_module"</span>)
+        .<span class="fn">putBoolean</span>(<span class="str">"is_active"</span>, <span class="kw">false</span>)
+        .<span class="fn">apply</span>();
+}
+
+<span class="an">@Override</span>
+<span class="kw">protected void</span> <span class="fn">onDestroy</span>() {
+    <span class="kw">super</span>.<span class="fn">onDestroy</span>();
+    <span class="kw">if</span> (<span class="fn">isFinishing</span>() &amp;&amp; isUserInitiatedExit) {
+        <span class="fn">stopNativeForegroundService</span>();
+    }
+    <span class="cm">// ⚠️ 非用户主动退出时不清除状态</span>
+    <span class="cm">// 让 UniApp 端检测到"曾存活但被杀死"并触发兜底恢复</span>
+}</code></pre>
+      </div>
+
+      <h3>Step 2：插件中增加 checkAndRestoreNativePage 方法</h3>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">☕ WCStoreNativeModule.java</div>
+          <span class="code-lang lang-java">JAVA</span>
+        </div>
+        <pre><code><span class="cm">/**
+ * UniApp 的 onShow 中调用此方法
+ * 
+ * callback 返回值：
+ *   { active: true }            - Task 存活，已拉回前台，UniApp 端无需处理
+ *   { active: false }           - 无活跃 Native Task，正常情况
+ *   { active: false, crashed: true } - 曾存在但已被杀，触发兜底恢复
+ */</span>
+<span class="an">@UniJSMethod</span>(uiThread = <span class="kw">true</span>)
+<span class="kw">public void</span> <span class="fn">checkAndRestoreNativePage</span>(<span class="ty">UniJSCallback</span> callback) {
+    <span class="ty">Activity</span> activity = mUniSDKInstance.<span class="fn">getContext</span>() <span class="kw">instanceof</span> <span class="ty">Activity</span>
+        ? (<span class="ty">Activity</span>) mUniSDKInstance.<span class="fn">getContext</span>() : <span class="kw">null</span>;
+
+    <span class="kw">if</span> (activity == <span class="kw">null</span>) { callback.<span class="fn">invoke</span>(<span class="fn">buildResult</span>(<span class="kw">false</span>, <span class="kw">false</span>)); <span class="kw">return</span>; }
+
+    <span class="ty">SharedPreferences</span> prefs = activity.<span class="fn">getSharedPreferences</span>(
+        <span class="str">"native_page_prefs"</span>, <span class="ty">Context</span>.<span class="at">MODE_PRIVATE</span>);
+
+    <span class="kw">boolean</span> isActive = prefs.<span class="fn">getBoolean</span>(<span class="str">"is_active"</span>, <span class="kw">false</span>);
+    <span class="kw">int</span> taskId = prefs.<span class="fn">getInt</span>(<span class="str">"native_task_id"</span>, -<span class="nu">1</span>);
+
+    <span class="kw">if</span> (!isActive || taskId == -<span class="nu">1</span>) {
+        callback.<span class="fn">invoke</span>(<span class="fn">buildResult</span>(<span class="kw">false</span>, <span class="kw">false</span>)); <span class="cm">// 正常情况，从未打开</span>
+        <span class="kw">return</span>;
+    }
+
+    <span class="kw">if</span> (<span class="fn">isTaskAlive</span>(activity, taskId)) {
+        <span class="ty">ActivityManager</span> am = (<span class="ty">ActivityManager</span>)
+            activity.<span class="fn">getSystemService</span>(<span class="ty">Context</span>.<span class="at">ACTIVITY_SERVICE</span>);
+        am.<span class="fn">moveTaskToFront</span>(taskId, <span class="nu">0</span>); <span class="cm">// ✅ 拉回前台</span>
+        callback.<span class="fn">invoke</span>(<span class="fn">buildResult</span>(<span class="kw">true</span>, <span class="kw">false</span>));
+    } <span class="kw">else</span> {
+        <span class="cm">// Task 已死，清除状态并通知 UniApp 端触发兜底</span>
+        prefs.<span class="fn">edit</span>().<span class="fn">remove</span>(<span class="str">"native_task_id"</span>)
+             .<span class="fn">putBoolean</span>(<span class="str">"is_active"</span>, <span class="kw">false</span>).<span class="fn">apply</span>();
+        callback.<span class="fn">invoke</span>(<span class="fn">buildResult</span>(<span class="kw">false</span>, <span class="kw">true</span>));
+    }
+}
+
+<span class="kw">private boolean</span> <span class="fn">isTaskAlive</span>(<span class="ty">Activity</span> activity, <span class="kw">int</span> taskId) {
+    <span class="ty">ActivityManager</span> am = (<span class="ty">ActivityManager</span>)
+        activity.<span class="fn">getSystemService</span>(<span class="ty">Context</span>.<span class="at">ACTIVITY_SERVICE</span>);
+    <span class="kw">if</span> (am == <span class="kw">null</span>) <span class="kw">return false</span>;
+    <span class="cm">// getAppTasks() 只返回当前应用的 Task，无需特殊权限</span>
+    <span class="kw">for</span> (<span class="ty">ActivityManager.AppTask</span> task : am.<span class="fn">getAppTasks</span>()) {
+        <span class="kw">if</span> (task.<span class="fn">getTaskInfo</span>().taskId == taskId) <span class="kw">return true</span>;
+    }
+    <span class="kw">return false</span>;
+}
+
+<span class="kw">private</span> <span class="ty">JSONObject</span> <span class="fn">buildResult</span>(<span class="kw">boolean</span> active, <span class="kw">boolean</span> crashed) {
+    <span class="ty">JSONObject</span> r = <span class="kw">new</span> <span class="ty">JSONObject</span>();
+    <span class="kw">try</span> { r.<span class="fn">put</span>(<span class="str">"active"</span>, active); r.<span class="fn">put</span>(<span class="str">"crashed"</span>, crashed); }
+    <span class="kw">catch</span> (<span class="ty">Exception</span> ignored) {}
+    <span class="kw">return</span> r;
+}</code></pre>
+      </div>
+
+      <h3>Step 3：UniApp 端 useNativePageGuard.js</h3>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">🟨 composables/useNativePageGuard.js</div>
+          <span class="code-lang lang-js">JS</span>
+        </div>
+        <pre><code><span class="kw">import</span> { ref } <span class="kw">from</span> <span class="str">'vue'</span>
+<span class="kw">import</span> { onShow } <span class="kw">from</span> <span class="str">'@dcloude/uni-app'</span>
+
+<span class="kw">export function</span> <span class="fn">useNativePageGuard</span>() {
+    <span class="kw">const</span> STORAGE_KEY = <span class="str">'native_page_state'</span>
+    <span class="kw">const</span> plugin = uni.<span class="fn">requireNativePlugin</span>(<span class="str">'WCStoreNativePlugin-WCStoreNativeModule'</span>)
+
+    <span class="cm">/**
+     * 跳转到原生页面，同时持久化状态
+     * @param {string} module - 'precheck_photo' | 'quality_check_list'
+     * @param {object} params - 传给原生页面的参数
+     */</span>
+    <span class="kw">const</span> <span class="fn">openNativePage</span> = (module, params) => {
+        <span class="kw">const</span> state = { module, params, timestamp: <span class="ty">Date</span>.<span class="fn">now</span>() }
+        uni.<span class="fn">setStorageSync</span>(STORAGE_KEY, <span class="ty">JSON</span>.<span class="fn">stringify</span>(state))
+        plugin.<span class="fn">navigateTo</span>({ module, params })
+    }
+
+    <span class="cm">/** 原生页面正常关闭时调用，清除状态 */</span>
+    <span class="kw">const</span> <span class="fn">onNativePageClose</span> = () => {
+        uni.<span class="fn">removeStorageSync</span>(STORAGE_KEY)
+    }
+
+    <span class="fn">onShow</span>(() => {
+        <span class="cm">// 调用插件检测 Native Task 状态</span>
+        plugin.<span class="fn">checkAndRestoreNativePage</span>((result) => {
+            <span class="kw">if</span> (result.active) {
+                <span class="cm">// ✅ Task 存活，已被拉回前台，无需处理</span>
+                <span class="kw">return</span>
+            }
+
+            <span class="kw">if</span> (result.crashed) {
+                <span class="cm">// ❌ Task 曾存活但已被杀死，触发兜底恢复</span>
+                <span class="kw">const</span> savedJson = uni.<span class="fn">getStorageSync</span>(STORAGE_KEY)
+                <span class="kw">if</span> (!savedJson) <span class="kw">return</span>
+
+                <span class="kw">const</span> savedState = <span class="ty">JSON</span>.<span class="fn">parse</span>(savedJson)
+                uni.<span class="fn">removeStorageSync</span>(STORAGE_KEY)
+
+                uni.<span class="fn">showModal</span>({
+                    title: <span class="str">'提示'</span>,
+                    content: <span class="str">'检查页面因系统限制被关闭，是否重新进入？'</span>,
+                    confirmText: <span class="str">'重新进入'</span>,
+                    cancelText: <span class="str">'取消'</span>,
+                    success: (res) => {
+                        <span class="kw">if</span> (res.confirm) {
+                            <span class="fn">openNativePage</span>(savedState.module, savedState.params)
+                        }
+                    }
+                })
+            }
+
+            <span class="cm">// active=false, crashed=false：正常情况，从未打开原生页面</span>
+        })
+    })
+
+    <span class="kw">return</span> { openNativePage, onNativePageClose }
+}
+</code></pre>
+      </div>
+
+      <h3>在页面中使用</h3>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">🟩 pages/inspection/index.vue</div>
+          <span class="code-lang lang-vue">VUE</span>
+        </div>
+        <pre><code><span class="kw">&lt;script setup&gt;</span>
+<span class="kw">import</span> { useNativePageGuard } <span class="kw">from</span> <span class="str">'@/composables/useNativePageGuard'</span>
+
+<span class="kw">const</span> { openNativePage } = <span class="fn">useNativePageGuard</span>()
+
+<span class="kw">const</span> <span class="fn">goPreCheck</span> = () => {
+    <span class="fn">openNativePage</span>(<span class="str">'precheck_photo'</span>, {
+        common: { token: <span class="str">'xxx'</span>, storeId: <span class="str">'123'</span> },
+        orderId: <span class="str">'ORDER_001'</span>,
+        vehicleId: <span class="str">'VH_001'</span>
+    })
+}
+
+<span class="kw">const</span> <span class="fn">goQualityCheck</span> = () => {
+    <span class="fn">openNativePage</span>(<span class="str">'quality_check_list'</span>, {
+        common: { token: <span class="str">'xxx'</span>, storeId: <span class="str">'123'</span> },
+        orderId: <span class="str">'ORDER_001'</span>
+    })
+}
+<span class="kw">&lt;/script&gt;</span></code></pre>
+      </div>
+    </section>
+
+
+    <!-- ── Manifest 汇总 ── -->
+    <section id="manifest">
+      <div class="section-header">
+        <span class="section-num">07</span>
+        <h2>完整 AndroidManifest.xml 配置</h2>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-filename">📄 AndroidManifest.xml（完整汇总）</div>
+          <span class="code-lang lang-xml">XML</span>
+        </div>
+        <pre><code><span class="kw">&lt;manifest</span> <span class="at">xmlns:android</span>=<span class="str">"http://schemas.android.com/apk/res/android"</span>
+    <span class="at">package</span>=<span class="str">"com.yourpackage"</span><span class="kw">&gt;</span>
+
+    <span class="cm">&lt;!-- ── 权限声明 ── --&gt;</span>
+    <span class="kw">&lt;uses-permission</span> <span class="at">android:name</span>=<span class="str">"android.permission.FOREGROUND_SERVICE"</span> <span class="kw">/&gt;</span>
+    <span class="cm">&lt;!-- Android 14+ 必须声明前台服务类型 --&gt;</span>
+    <span class="kw">&lt;uses-permission</span> <span class="at">android:name</span>=<span class="str">"android.permission.FOREGROUND_SERVICE_SPECIAL_USE"</span> <span class="kw">/&gt;</span>
+    <span class="kw">&lt;uses-permission</span> <span class="at">android:name</span>=<span class="str">"android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"</span> <span class="kw">/&gt;</span>
+    <span class="kw">&lt;uses-permission</span> <span class="at">android:name</span>=<span class="str">"android.permission.REORDER_TASKS"</span> <span class="kw">/&gt;</span>
+
+    <span class="kw">&lt;application</span> <span class="at">android:name</span>=<span class="str">".YourApplication"</span> ...<span class="kw">&gt;</span>
+
+        <span class="cm">&lt;!-- ── 原生 Activity：独立 Task 隔离 ── --&gt;</span>
+        <span class="kw">&lt;activity</span>
+            <span class="at">android:name</span>=<span class="str">".PreCheckPhotoActivity"</span>
+            <span class="at">android:launchMode</span>=<span class="str">"singleInstance"</span>
+            <span class="at">android:taskAffinity</span>=<span class="str">"com.yourpackage.native_task"</span>
+            <span class="at">android:exported</span>=<span class="str">"false"</span>
+            <span class="at">android:screenOrientation</span>=<span class="str">"portrait"</span> <span class="kw">/&gt;</span>
+
+        <span class="kw">&lt;activity</span>
+            <span class="at">android:name</span>=<span class="str">".QualityCheckListActivity"</span>
+            <span class="at">android:launchMode</span>=<span class="str">"singleInstance"</span>
+            <span class="at">android:taskAffinity</span>=<span class="str">"com.yourpackage.native_task"</span>
+            <span class="at">android:exported</span>=<span class="str">"false"</span>
+            <span class="at">android:screenOrientation</span>=<span class="str">"portrait"</span> <span class="kw">/&gt;</span>
+
+        <span class="cm">&lt;!-- ── 前台保活服务 ── --&gt;</span>
+        <span class="kw">&lt;service</span>
+            <span class="at">android:name</span>=<span class="str">".NativePageForegroundService"</span>
+            <span class="at">android:foregroundServiceType</span>=<span class="str">"specialUse"</span>
+            <span class="at">android:exported</span>=<span class="str">"false"</span> <span class="kw">/&gt;</span>
+
+    <span class="kw">&lt;/application&gt;</span>
+<span class="kw">&lt;/manifest&gt;</span></code></pre>
+      </div>
+    </section>
+
+
+    <!-- ── 对比 ── -->
+    <section id="compare">
+      <div class="section-header">
+        <span class="section-num">08</span>
+        <h2>方案效果对比</h2>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>问题场景</th>
+              <th>无防护</th>
+              <th>仅第一层</th>
+              <th>一层+二层</th>
+              <th>完整方案</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>桌面图标恢复：Activity 被清栈</td>
+              <td class="td-check">❌</td>
+              <td class="td-check">✅</td>
+              <td class="td-check">✅</td>
+              <td class="td-check">✅</td>
+            </tr>
+            <tr>
+              <td>最近任务恢复：Activity 被清栈</td>
+              <td class="td-cross">❌</td>
+              <td class="td-check">✅</td>
+              <td class="td-check">✅</td>
+              <td class="td-check">✅</td>
+            </tr>
+            <tr>
+              <td>桌面图标恢复：只回到 UniApp 页</td>
+              <td class="td-warn">—</td>
+              <td class="td-cross">❌ 新问题</td>
+              <td class="td-cross">❌ 新问题</td>
+              <td class="td-check">✅ 主动拉回</td>
+            </tr>
+            <tr>
+              <td>OEM 后台进程管控</td>
+              <td class="td-cross">❌</td>
+              <td class="td-cross">❌</td>
+              <td class="td-check">✅ 基本解决</td>
+              <td class="td-check">✅</td>
+            </tr>
+            <tr>
+              <td>VIVO 极激进省电策略</td>
+              <td class="td-cross">❌</td>
+              <td class="td-cross">❌</td>
+              <td class="td-warn">⚠️ 小概率</td>
+              <td class="td-check">✅</td>
+            </tr>
+            <tr>
+              <td>进程被完全杀死后体验恢复</td>
+              <td class="td-cross">❌ 丢失</td>
+              <td class="td-cross">❌ 丢失</td>
+              <td class="td-cross">❌ 丢失</td>
+              <td class="td-check">✅ 引导重进</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- ── 注意事项 ── -->
+    <section id="notes">
+      <div class="section-header">
+        <span class="section-num">09</span>
+        <h2>注意事项</h2>
+      </div>
+
+      <div class="callout warn">
+        <div class="callout-icon">📢</div>
+        <div class="callout-body">
+          <div class="callout-title">Android 13+ 通知运行时权限</div>
+          <div class="callout-text">Android 13（API 33）起，展示通知需要 <code>POST_NOTIFICATIONS</code> 运行时权限。未获权限时前台服务仍运行，但通知栏不显示。建议在应用启动时申请：<br><br>
+          <code>if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {<br>&nbsp;&nbsp;ActivityCompat.requestPermissions(activity, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 100);<br>}</code></div>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="callout-icon">ℹ️</div>
+        <div class="callout-body">
+          <div class="callout-title">foregroundServiceType 兼容性</div>
+          <div class="callout-text"><code>specialUse</code> 类型从 Android 14（API 34）开始强制要求。当前 <code>targetSdkVersion = 33</code> 时暂不强制，但建议提前声明以备升级 target 时无需再改。</div>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="callout-icon">ℹ️</div>
+        <div class="callout-body">
+          <div class="callout-title">REORDER_TASKS 权限说明</div>
+          <div class="callout-text"><code>REORDER_TASKS</code> 在 API 31 中被标记为 deprecated，但对<strong>操作自身应用内 Task</strong> 依然有效且不受限制。部分 OEM 定制系统建议声明以防拦截。</div>
+        </div>
+      </div>
+
+      <div class="callout success">
+        <div class="callout-icon">✅</div>
+        <div class="callout-body">
+          <div class="callout-title">iOS 端无此问题</div>
+          <div class="callout-text">iOS 的 App 生命周期管理机制与 Android 不同，不存在 <code>singleTask</code> 清栈和 OEM 激进杀进程问题，iOS 原生插件无需针对此场景做任何处理。</div>
+        </div>
+      </div>
+
+      <div class="callout danger">
+        <div class="callout-icon">🚫</div>
+        <div class="callout-body">
+          <div class="callout-title">不要在 onPause / onStop 中停止前台服务</div>
+          <div class="callout-text">只有在用户主动退出（<code>isFinishing() && isUserInitiatedExit</code>）时才停止前台服务。在 <code>onPause</code> 或 <code>onStop</code> 中停止会导致退后台时服务立即关闭，完全失去保活效果。</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>
